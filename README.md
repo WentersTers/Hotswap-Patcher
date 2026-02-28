@@ -147,3 +147,8 @@ dotnet publish PAIcomPatcher.csproj -c Release -r win-x64 ^
 
 MIT — see [LICENSE](LICENSE)
 
+>This tool does not circumvent copy protection, licensing, or DRM
+>ConfuserEx obfuscation is bypassed solely for interoperability purposes
+>Users are responsible for complying with PAIcom's EULA
+
+
