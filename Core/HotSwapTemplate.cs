@@ -57,6 +57,24 @@ public static class HotSwapTemplate
             // Reflection-located speech engine (found after game finishes init)
             private static object _speechEngine;   // SpeechRecognitionEngine or SpeechRecognizer
             private static System.Reflection.MethodInfo _emulateMethod;
+            private static System.Reflection.MethodInfo _emulateAsyncMethod;
+
+            // Direct animation method (bypass speech engine)
+            private static System.Reflection.MethodInfo _animationMethod;
+            private static bool _animationMethodSearched = false;
+
+            // Game's command-dispatch method (dictionary-based lookup)
+            private static System.Reflection.MethodInfo _commandHandlerMethod;
+            
+            // Stores the main Form so we can invoke on it
+            private static System.Windows.Forms.Form _mainForm;
+
+            // PictureBox controls discovered from the form for SHOW/HIDE fallback
+            private static System.Windows.Forms.Control[] _pictureBoxes;
+
+            // Methods to stop/restart async recognition for thread-safety
+            private static System.Reflection.MethodInfo _recognizeAsyncCancelMethod;
+            private static System.Reflection.MethodInfo _recognizeAsyncMethod;
 
             // ── Entry point ────────────────────────────────────────────────
 
@@ -271,28 +289,130 @@ public static class HotSwapTemplate
             private static void DispatchCommand(string originalPhrase, string commandName)
             {
                 Log("[DISPATCH] '" + commandName + "' (phrase: '" + originalPhrase + "')");
+                Log("[DISPATCH] Thread: " + System.Threading.Thread.CurrentThread.Name + " (ID " + System.Threading.Thread.CurrentThread.ManagedThreadId + ", IsBackground=" + System.Threading.Thread.CurrentThread.IsBackground + ")");
+                Log("[DISPATCH] State: engine=" + (_speechEngine != null) + " emulate=" + (_emulateMethod != null) + " emulateAsync=" + (_emulateAsyncMethod != null) + " animMethod=" + (_animationMethod != null) + " mainForm=" + (_mainForm != null));
 
-                // -- Attempt 1: feed the phrase back into the speech engine --
-                if (_emulateMethod != null && _speechEngine != null)
+                // -- Attempt 1: EmulateRecognizeAsync on the UI thread --
+                // SpeechRecognitionEngine is thread-affine; methods must be
+                // invoked from the same thread that created the engine (the UI thread).
+                if (_emulateAsyncMethod != null && _speechEngine != null && _mainForm != null)
                 {
                     try
                     {
-                        Log("[EMULATE] Calling EmulateRecognize(\"" + originalPhrase + "\")");
-                        _emulateMethod.Invoke(_speechEngine, new object[] { originalPhrase });
-                        Log("[EMULATE] OK");
+                        Log("[EMULATE-ASYNC] Marshalling EmulateRecognizeAsync(\"" + originalPhrase + "\") to UI thread …");
+                        var asyncException = new System.Threading.ManualResetEventSlim(false);
+                        Exception uiError = null;
+                        _mainForm.Invoke(new Action(() =>
+                        {
+                            try
+                            {
+                                _emulateAsyncMethod.Invoke(_speechEngine, new object[] { originalPhrase });
+                            }
+                            catch (Exception ex)
+                            {
+                                uiError = ex is System.Reflection.TargetInvocationException t ? (t.InnerException ?? ex) : ex;
+                            }
+                            finally { asyncException.Set(); }
+                        }));
+                        asyncException.Wait(5000);
+                        if (uiError == null)
+                        {
+                            Log("[EMULATE-ASYNC] OK – game handler will fire asynchronously.");
+                            return;
+                        }
+                        Log("[EMULATE-ASYNC] Failed on UI thread: " + uiError.GetType().Name + ": " + uiError.Message);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("[EMULATE-ASYNC] Invoke failed: " + ex.GetType().Name + ": " + ex.Message);
+                    }
+                }
+
+                // -- Attempt 2: Cancel async recognition, EmulateRecognize, restart --
+                // Nuclear option: temporarily stop async recognition so EmulateRecognize works.
+                if (_emulateMethod != null && _speechEngine != null && _mainForm != null
+                    && _recognizeAsyncCancelMethod != null && _recognizeAsyncMethod != null)
+                {
+                    try
+                    {
+                        Log("[EMULATE-STOP] Stopping async recognition, calling EmulateRecognize, then restarting …");
+                        Exception stopError = null;
+                        _mainForm.Invoke(new Action(() =>
+                        {
+                            try
+                            {
+                                _recognizeAsyncCancelMethod.Invoke(_speechEngine, null);
+                                System.Threading.Thread.Sleep(50);
+                                _emulateMethod.Invoke(_speechEngine, new object[] { originalPhrase });
+                                System.Threading.Thread.Sleep(50);
+                                // Restart: RecognizeAsync(RecognizeMode.Multiple) = RecognizeAsync(1)
+                                _recognizeAsyncMethod.Invoke(_speechEngine, new object[] { 1 });
+                            }
+                            catch (Exception ex)
+                            {
+                                stopError = ex is System.Reflection.TargetInvocationException t ? (t.InnerException ?? ex) : ex;
+                            }
+                        }));
+                        if (stopError == null)
+                        {
+                            Log("[EMULATE-STOP] OK – recognition restarted.");
+                            return;
+                        }
+                        Log("[EMULATE-STOP] Failed: " + stopError.GetType().Name + ": " + stopError.Message);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("[EMULATE-STOP] Invoke failed: " + ex.GetType().Name + ": " + ex.Message);
+                    }
+                }
+
+                // -- Attempt 3: Directly invoke the internal animation method on the UI thread --
+                if (_animationMethod != null && _mainForm != null)
+                {
+                    try
+                    {
+                        var relativePath = "animations/" + commandName + ".txt";
+                        Log("[DIRECT-INVOKE] Calling " + _animationMethod.Name + " with \"" + relativePath + "\" on UI thread");
+                        
+                        _mainForm.BeginInvoke(new Action(() =>
+                        {
+                            try { _animationMethod.Invoke(_mainForm, new object[] { relativePath }); }
+                            catch (Exception uiEx) { Log("[DIRECT-INVOKE] UI thread error: " + uiEx.Message); }
+                        }));
+                        
+                        Log("[DIRECT-INVOKE] Dispatched to UI thread.");
                         return;
                     }
                     catch (Exception ex)
                     {
-                        Log("[EMULATE] Failed (" + ex.Message + "), falling back to script.");
+                        Log("[DIRECT-INVOKE] Failed (" + ex.Message + "). Falling back.");
                     }
                 }
-                else
+
+                // -- Attempt 4: Try the command handler method (dictionary-based dispatch) --
+                if (_commandHandlerMethod != null && _mainForm != null)
                 {
-                    Log("[EMULATE] Engine not found yet; using script fallback.");
+                    try
+                    {
+                        Log("[CMD-HANDLER] Calling " + _commandHandlerMethod.Name + " with \"" + originalPhrase + "\" on UI thread");
+                        _mainForm.BeginInvoke(new Action(() =>
+                        {
+                            try { _commandHandlerMethod.Invoke(_mainForm, new object[] { originalPhrase }); }
+                            catch (Exception uiEx) { Log("[CMD-HANDLER] UI thread error: " + uiEx.Message); }
+                        }));
+                        Log("[CMD-HANDLER] Dispatched to UI thread.");
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("[CMD-HANDLER] Failed: " + ex.Message);
+                    }
                 }
 
-                // -- Attempt 2: run the local animation script --
+                if (_emulateMethod == null && _emulateAsyncMethod == null && _animationMethod == null)
+                    Log("[DISPATCH] No engine or animation method available yet; using script fallback.");
+
+                // -- Attempt 5: run the local animation script --
                 var scriptPath = System.IO.Path.Combine(BaseDir, "animations", commandName + ".txt");
                 if (!File.Exists(scriptPath))
                 {
@@ -306,24 +426,35 @@ public static class HotSwapTemplate
 
             // ── Speech-engine discovery ───────────────────────────────────
 
-            /// <summary>
-            /// Called on a background thread ~3 s after startup.
-            /// Walks all open Forms and their fields looking for a
-            /// SpeechRecognitionEngine or SpeechRecognizer instance.
-            /// Stores the engine + its EmulateRecognize(string) method for later use.
-            /// </summary>
             private static void DelayedEngineSearch()
             {
                 System.Threading.Thread.Sleep(3000);
-                Log("[ENGINE] Starting speech-engine discovery …");
-                try
+                
+                int maxAttempts = 30; // 30 × 10 s = 5 min
+                for (int attempt = 1; attempt <= maxAttempts; attempt++)
                 {
-                    FindSpeechEngine();
+                    if (_emulateMethod != null) return; // already found
+
+                    Log("[ENGINE] Discovery attempt " + attempt + "/" + maxAttempts + " …");
+                    try
+                    {
+                        FindSpeechEngine();
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("[ENGINE] Discovery error: " + ex.Message);
+                    }
+
+                    if (_emulateMethod != null)
+                    {
+                        Log("[ENGINE] Engine found after " + attempt + " attempt(s).");
+                        return;
+                    }
+
+                    if (attempt < maxAttempts)
+                        System.Threading.Thread.Sleep(10000); // wait 10 s before retry
                 }
-                catch (Exception ex)
-                {
-                    Log("[ENGINE] Discovery error: " + ex.Message);
-                }
+                Log("[ENGINE] Speech engine not found after 5 minutes.  Script fallback will be used.");
             }
 
             private static void FindSpeechEngine()
@@ -353,6 +484,13 @@ public static class HotSwapTemplate
                 foreach (var form in forms)
                 {
                     if (form == null) continue;
+                    
+                    if (_mainForm == null)
+                    {
+                        _mainForm = form;
+                        FindAnimationMethod(_mainForm);
+                    }
+                    
                     var found = SearchObjectForEngine(form, engineTypeNames, depth: 0, maxDepth: 3);
                     if (found != null)
                     {
@@ -362,6 +500,122 @@ public static class HotSwapTemplate
                 }
 
                 Log("[ENGINE] Speech engine not found in open forms.");
+            }
+
+            private static void FindAnimationMethod(System.Windows.Forms.Form form)
+            {
+                if (_animationMethod != null || _animationMethodSearched) return;
+                _animationMethodSearched = true;
+                
+                try 
+                {
+                    var methods = form.GetType().GetMethods(
+                        System.Reflection.BindingFlags.Instance | 
+                        System.Reflection.BindingFlags.NonPublic | 
+                        System.Reflection.BindingFlags.Public);
+
+                    Log("[ENGINE] Scanning " + methods.Length + " methods on form type " + form.GetType().FullName + " …");
+
+                    // Log ALL methods that take a single string param for diagnostics
+                    var candidates = new System.Collections.Generic.List<System.Reflection.MethodInfo>();
+                    foreach (var m in methods)
+                    {
+                        var parameters = m.GetParameters();
+                        if (parameters.Length == 1 && parameters[0].ParameterType == typeof(string))
+                        {
+                            var retName = m.ReturnType != null ? m.ReturnType.FullName : "(null)";
+                            Log("[ENGINE]   candidate: " + m.Name + "(string) → " + retName);
+                            candidates.Add(m);
+                        }
+                    }
+                    Log("[ENGINE] Found " + candidates.Count + " methods with signature ?(string).");
+
+                    // Priority 1: exact Task return
+                    foreach (var m in candidates)
+                    {
+                        var retName = m.ReturnType != null ? m.ReturnType.FullName : "";
+                        if (retName == "System.Threading.Tasks.Task")
+                        {
+                            Log("[ENGINE] ★ Selected animation method (Task return): " + m.Name);
+                            _animationMethod = m;
+                            break;
+                        }
+                    }
+
+                    // Priority 2: return type name contains "Task"
+                    if (_animationMethod == null)
+                    {
+                        foreach (var m in candidates)
+                        {
+                            var retName = m.ReturnType != null ? m.ReturnType.FullName : "";
+                            if (retName != null && retName.Contains("Task"))
+                            {
+                                Log("[ENGINE] ★ Selected animation method (partial Task match): " + m.Name + " → " + retName);
+                                _animationMethod = m;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Priority 3: async void method (shows as void return but has AsyncStateMachineAttribute)
+                    if (_animationMethod == null)
+                    {
+                        foreach (var m in candidates)
+                        {
+                            var attrs = m.GetCustomAttributes(false);
+                            foreach (var attr in attrs)
+                            {
+                                if (attr.GetType().FullName != null && attr.GetType().FullName.Contains("AsyncStateMachine"))
+                                {
+                                    Log("[ENGINE] ★ Selected animation method (async void): " + m.Name);
+                                    _animationMethod = m;
+                                    break;
+                                }
+                            }
+                            if (_animationMethod != null) break;
+                        }
+                    }
+
+                    // Also look for the command handler method (void return, takes string,
+                    // likely the method that reads from the dictionary and calls the animation method)
+                    // We search for methods that reference File.ReadAllLines or dictionary access
+                    // For now, collect void(string) methods as candidates for later
+                    foreach (var m in candidates)
+                    {
+                        if (m.ReturnType == typeof(void) && m != _animationMethod)
+                        {
+                            // Heuristic: look at the method body for dictionary references
+                            try
+                            {
+                                var body = m.GetMethodBody();
+                                if (body != null)
+                                {
+                                    var il = body.GetILAsByteArray();
+                                    if (il != null && il.Length > 20 && il.Length < 2000)
+                                    {
+                                        // Method is non-trivial – could be the command handler
+                                        if (_commandHandlerMethod == null)
+                                        {
+                                            _commandHandlerMethod = m;
+                                            Log("[ENGINE] ★ Possible command handler: " + m.Name + " (void, string param, IL size " + il.Length + ")");
+                                        }
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log("[ENGINE] Error finding animation method: " + ex.Message);
+                }
+
+                if (_animationMethod == null)
+                    Log("[ENGINE] No animation method found after scanning all candidates.");
+
+                // Discover PictureBox controls for SHOW/HIDE script fallback
+                DiscoverPictureBoxes(form);
             }
 
             private static object SearchObjectForEngine(object obj, string[] typeNames, int depth, int maxDepth)
@@ -410,6 +664,60 @@ public static class HotSwapTemplate
                 return null;
             }
 
+            private static void DiscoverPictureBoxes(System.Windows.Forms.Form form)
+            {
+                try
+                {
+                    var pbs = new System.Collections.Generic.List<System.Windows.Forms.Control>();
+
+                    // Strategy 1: look for a PictureBox[] or Control[] array field
+                    var flags = System.Reflection.BindingFlags.Instance |
+                                System.Reflection.BindingFlags.NonPublic |
+                                System.Reflection.BindingFlags.Public;
+
+                    foreach (var field in form.GetType().GetFields(flags))
+                    {
+                        try
+                        {
+                            var val = field.GetValue(form);
+                            if (val is System.Windows.Forms.PictureBox[] pbArr)
+                            {
+                                _pictureBoxes = pbArr;
+                                Log("[ENGINE] Found PictureBox[] array with " + pbArr.Length + " elements in field '" + field.Name + "'.");
+                                return;
+                            }
+                        }
+                        catch { }
+                    }
+
+                    // Strategy 2: collect individual PictureBox fields in declaration order
+                    foreach (var field in form.GetType().GetFields(flags))
+                    {
+                        try
+                        {
+                            var val = field.GetValue(form);
+                            if (val is System.Windows.Forms.PictureBox)
+                                pbs.Add((System.Windows.Forms.Control)val);
+                        }
+                        catch { }
+                    }
+
+                    if (pbs.Count > 0)
+                    {
+                        _pictureBoxes = pbs.ToArray();
+                        Log("[ENGINE] Collected " + pbs.Count + " PictureBox fields for SHOW/HIDE.");
+                    }
+                    else
+                    {
+                        Log("[ENGINE] No PictureBox controls found on form.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log("[ENGINE] PictureBox discovery error: " + ex.Message);
+                }
+            }
+
             private static void StoreEngine(object engine)
             {
                 _speechEngine = engine;
@@ -431,6 +739,60 @@ public static class HotSwapTemplate
                 else
                 {
                     Log("[ENGINE] Engine found but EmulateRecognize(string) not available on " + engine.GetType().FullName);
+                }
+
+                // Also locate EmulateRecognizeAsync(string) — this one works while the
+                // engine is actively doing asynchronous recognition (the sync version throws).
+                var asyncMethod = engine.GetType().GetMethod(
+                    "EmulateRecognizeAsync",
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.Public,
+                    null,
+                    new System.Type[] { typeof(string) },
+                    null);
+
+                if (asyncMethod != null)
+                {
+                    _emulateAsyncMethod = asyncMethod;
+                    Log("[ENGINE] Ready: " + engine.GetType().FullName + ".EmulateRecognizeAsync(string)");
+                }
+                else
+                {
+                    Log("[ENGINE] EmulateRecognizeAsync(string) not found on " + engine.GetType().FullName);
+                }
+
+                // Also locate RecognizeAsyncCancel() and RecognizeAsync(RecognizeMode)
+                // for the stop/restart fallback strategy
+                _recognizeAsyncCancelMethod = engine.GetType().GetMethod(
+                    "RecognizeAsyncCancel",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public,
+                    null, System.Type.EmptyTypes, null);
+                if (_recognizeAsyncCancelMethod != null)
+                    Log("[ENGINE] Ready: RecognizeAsyncCancel()");
+
+                // RecognizeAsync(RecognizeMode) – RecognizeMode is an enum: Single=0, Multiple=1
+                var recognizeMethods = engine.GetType().GetMethods(
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+                foreach (var rm in recognizeMethods)
+                {
+                    if (rm.Name == "RecognizeAsync")
+                    {
+                        var rmParams = rm.GetParameters();
+                        if (rmParams.Length == 1 && rmParams[0].ParameterType.IsEnum)
+                        {
+                            _recognizeAsyncMethod = rm;
+                            Log("[ENGINE] Ready: RecognizeAsync(" + rmParams[0].ParameterType.FullName + ")");
+                            break;
+                        }
+                    }
+                }
+
+                // Log all public methods on engine for diagnostics
+                Log("[ENGINE] Speech engine public methods:");
+                foreach (var em in recognizeMethods)
+                {
+                    if (em.DeclaringType == engine.GetType() || em.DeclaringType.FullName.Contains("Speech"))
+                        Log("[ENGINE]   " + em.Name + "(" + string.Join(", ", System.Array.ConvertAll(em.GetParameters(), p => p.ParameterType.Name)) + ") → " + em.ReturnType.Name);
                 }
             }
 
@@ -489,10 +851,39 @@ public static class HotSwapTemplate
                                 break;
 
                             case "HIDE_ALL":
-                            case "SHOW":
-                            case "HIDE":
-                                // UI animation directives – handled by the game's own renderer
+                                if (_pictureBoxes != null && _mainForm != null)
+                                {
+                                    _mainForm.Invoke(new Action(() =>
+                                    {
+                                        foreach (var ctrl in _pictureBoxes)
+                                            if (ctrl != null) ctrl.Visible = false;
+                                    }));
+                                }
                                 break;
+
+                            case "SHOW":
+                            {
+                                int showIdx;
+                                if (int.TryParse(arg, out showIdx) && _pictureBoxes != null
+                                    && showIdx >= 0 && showIdx < _pictureBoxes.Length && _mainForm != null)
+                                {
+                                    var target = _pictureBoxes[showIdx];
+                                    _mainForm.Invoke(new Action(() => { if (target != null) target.Visible = true; }));
+                                }
+                                break;
+                            }
+
+                            case "HIDE":
+                            {
+                                int hideIdx;
+                                if (int.TryParse(arg, out hideIdx) && _pictureBoxes != null
+                                    && hideIdx >= 0 && hideIdx < _pictureBoxes.Length && _mainForm != null)
+                                {
+                                    var target = _pictureBoxes[hideIdx];
+                                    _mainForm.Invoke(new Action(() => { if (target != null) target.Visible = false; }));
+                                }
+                                break;
+                            }
 
                             default:
                                 Log("[SCRIPT] Unknown directive: " + directive);
