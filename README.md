@@ -111,12 +111,39 @@ dotnet build PAIcomPatcher.csproj -c Release
 ```
 
 To produce a single self-contained exe:
+(Powershell)
 
 ```
-dotnet publish PAIcomPatcher.csproj -c Release -r win-x64 ^
-  --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false ^
-  -o publish\
+cd 'path_to_root_folder_of_PAIcom'
 ```
+
+## How to find path to root folder
+
+1. Go to steam (if installed from steam)
+2. Go to Library if not already
+3. Click PAIcom
+4. Click on the Gear icon on the same level as the play button
+5. Manage, then browse local files
+6. Copy folder path to there
+7. paste that in the cd 'folder_path_here'
+
+## Compiling the Patch .exe
+
+1. Run this command
+```
+dotnet publish PAIcomPatcher.csproj -c Release -r win-x64 `
+    --self-contained true -p:PublishSingleFile=true `
+    -p:PublishTrimmed=false -o publish\
+```
+
+2. Find the Patch .exe in the Publish folder
+3. Move the Patch .exe to the folder with PAIcom in it
+4. Run the Patch .exe
+
+
+## What the command does
+
+This command, rebuilds the csproj with the PAIcomPatcher, creates the .exe and bundles .NET with the .exe to make it easier for anyone to run (Meaning it doesnt require .NET 8 to run)
 
 ---
 
@@ -150,5 +177,6 @@ MIT — see [LICENSE](LICENSE)
 >This tool does not circumvent copy protection, licensing, or DRM
 >ConfuserEx obfuscation is bypassed solely for interoperability purposes
 >Users are responsible for complying with PAIcom's EULA
+
 
 
