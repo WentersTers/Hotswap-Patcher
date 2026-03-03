@@ -1,9 +1,13 @@
-Patcher
 
-Extends your own copy of PAIcom.exe with a file‑watching runtime, enabling you to trigger in‑game commands by writing a phrase to a text file — no microphone required.
 
-Legal notice: This tool contains no game code. It reads your locally‑installed copy of PAIcom.exe, and creates an interoperable executable based on your local installation. You must own a legitimate copy of PAIcom (e.g. via Steam) to use this tool.
-This software is provided for research and interoperability purposes.
+---
+
+**Extends your own copy** of PAIcom.exe with a file‑watching runtime, enabling you to trigger in‑game commands by writing a phrase to a text file — no microphone required.
+
+>Legal notice: This tool contains no game code.
+> It reads your locally‑installed copy of PAIcom.exe, and creates an interoperable executable based on your local installation.
+> You must own a legitimate copy of PAIcom (e.g. via Steam) to use this tool.
+>This software is provided for research and interoperability purposes.
 
 ---
 
@@ -16,8 +20,8 @@ PAIcom.exe Your own Steam copy — not included
 
 ---
 
-Quick start
-
+**Quick start**
+---
 1. Copy PAIcomPatcher.exe into the same folder as PAIcom.exe
       (usually SteamLibrary\steamapps\common\PAIcom).
 2. Open a terminal in that folder and run:
@@ -35,8 +39,8 @@ Quick start
 
 ---
 
-Command mapping
-
+**Command mapping**
+---
 Place a file at custom-commands\commands.txt (relative to the exe) with one command per line in this format:
 
 ```
@@ -49,8 +53,8 @@ The part in parentheses is the name of the matching animation script inside the 
 
 ---
 
-Animation scripts
-
+**Animation scripts**
+---
 Each file in animations\ can use these directives (one per line):
 
 ```
@@ -63,14 +67,20 @@ WAIT 500
 ```
 
 Directive Description
-HIDE_ALL Hides every PictureBox on the form
-SHOW N Shows PictureBox at index N
-HIDE N Hides PictureBox at index N
-OPEN_URL <url> Opens the URL in the default browser
-PLAY_AUDIO <path> Plays a .wav file (relative to the exe folder)
-WAIT <ms> Pauses script execution for N milliseconds
+---
+HIDE_ALL --- Hides every PictureBox on the form
 
-SHOW/HIDE/HIDE_ALL directly manipulate the game's own PictureBox controls, discovered at runtime.
+SHOW N --- Shows PictureBox at index N
+
+HIDE N --- Hides PictureBox at index N
+
+OPEN_URL <url> --- Opens the URL in the default browser
+
+PLAY_AUDIO <path> --- Plays a .wav file (relative to the exe folder)
+
+WAIT <ms> --- Pauses script execution for N milliseconds
+
+SHOW/HIDE/HIDE_ALL --- directly manipulate the game's own PictureBox controls, discovered at runtime.
 
 Animation scripts are used when the speech engine dispatch chain fails (see below). When [EMULATE-ASYNC] OK or [EMULATE-STOP] OK appears in the log, the game's own full handler ran and played its built‑in animations.
 
@@ -96,7 +106,7 @@ cd PAIcom-Patch-Injector
 dotnet build PAIcomPatcher.csproj -c Release
 ```
 
-How to find the PAIcom folder path
+**How to find the PAIcom folder path**
 
 1. Open Steam and go to your Library.
 2. Click PAIcom.
@@ -106,6 +116,8 @@ How to find the PAIcom folder path
 6. Use that path in the cd command below.
 
 Compiling a self‑contained release exe (PowerShell)
+
+---
 
 ```powershell
 cd 'C:\path\to\PAIcom'   # paste your PAIcom folder path here
