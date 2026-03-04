@@ -1,4 +1,4 @@
-# PAIcom Patcher
+# Hotswap Patcher
 
 **Extends your own copy** of `PAIcom.exe` with a file‑watching runtime, enabling you to trigger in‑game commands by writing a phrase to a text file - **no microphone required**.
 
@@ -23,7 +23,7 @@
 ## Quick start
 
 1. Copy `PAIcomPatcher.exe` into the same folder as `PAIcom.exe`  
-   (usually `SteamLibrary\steamapps\common\PAIcom`).
+   (usually `SteamLibrary\steamapps\common\PAIcom (furry computer assistant)`).
 
 2. Open a terminal in that folder and run:
    ```
@@ -101,8 +101,8 @@ Prints what would be patched without writing any files.
 Requires the **.NET 8 SDK**.
 
 ```bash
-git clone https://github.com/WentersTers/PAIcom-Patch-Injector.git
-cd PAIcom-Patch-Injector
+git clone https://github.com/WentersTers/Hotswap-Patcher.git
+cd Hotswap-Patcher
 dotnet build PAIcomPatcher.csproj -c Release
 ```
 
