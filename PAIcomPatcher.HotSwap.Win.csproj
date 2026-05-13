@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>PAIcomPatcher.HotSwap.Win</AssemblyName>
@@ -15,6 +15,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Windows Desktop framework includes WinForms, WPF, etc for net8.0-windows -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Exclude nested build trees from the root project so their generated
          obj/bin .cs files do not get compiled into this build. -->
     <Compile Remove="hotswap-PAIcom\**\*.cs" />
@@ -23,6 +28,8 @@
     <Compile Remove="hotswap-PAIcom\bin\**" />
     <Compile Remove="compat-PAIcom\obj\**" />
     <Compile Remove="compat-PAIcom\bin\**" />
+    <!-- Exclude the old UI folder (game UI) -->
+    <Compile Remove="UI\**\*.cs" />
     <!-- IL-level assembly manipulation -->
     <PackageReference Include="dnlib" Version="4.4.0" />
     <!-- Roslyn for compiling HotSwap template to IL on the fly -->

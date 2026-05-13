@@ -897,6 +897,28 @@ public static class HotSwapTemplate
                 }
             }
 
+            // ── Public dispatch entry point (for UI integration) ────────────
+
+            /// <summary>
+            /// Public entry point for the UI to dispatch a command directly.
+            /// This can be called from the WinForms command launcher without
+            /// needing to write to command_input.txt.
+            /// </summary>
+            public static void DispatchCommandPhrase(string phrase)
+            {
+                if (phrase == null || phrase.Trim() == "") return;
+
+                var commandName = LookupCommand(phrase);
+                if (commandName == null)
+                {
+                    Log("[UI] No command found for phrase: '" + phrase + "'");
+                    return;
+                }
+
+                Log("[UI-DISPATCH] Dispatching: '" + phrase + "' → '" + commandName + "'");
+                DispatchCommand(phrase, commandName);
+            }
+
             // ── Helpers ───────────────────────────────────────────────────
 
             private static void EnsureInputFile()

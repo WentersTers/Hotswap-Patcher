@@ -1,5 +1,7 @@
 using PAIcomPatcher.Core;
+using PAIcomPatcher.UILayout;
 using System.Security.Cryptography;
+using System.Windows.Forms;
 
 namespace PAIcomPatcher;
 
@@ -19,7 +21,33 @@ class Program
         Console.WriteLine("PAIcom Binary-Patch Injector v1.0");
         Console.WriteLine("==================================");
 
-        // ── Parse arguments ──────────────────────────────────────────────
+        // ── Check for UI launch modes (early exit) ───────────────────────
+        if (args.Length > 0)
+        {
+            switch (args[0])
+            {
+                case "--preview":
+                case "-p":
+                    // Show the command launcher preview form
+                    Application.EnableVisualStyles();
+                    Application.SetCompatibleTextRenderingDefault(false);
+                    string? baseDir = args.Length > 1 ? args[1] : null;
+                    CommandLauncherPreview.ShowPreview(baseDir);
+                    return 0;
+
+                case "--launcher":
+                case "-l":
+                    // Show the command launcher form (for runtime integration)
+                    Application.EnableVisualStyles();
+                    Application.SetCompatibleTextRenderingDefault(false);
+                    baseDir = args.Length > 1 ? args[1] : null;
+                    var launcher = new CommandLauncher(baseDir);
+                    launcher.ShowDialog();
+                    return 0;
+            }
+        }
+
+        // ── Parse arguments (normal patcher mode) ────────────────────────
         if (args.Length == 0 || args[0] is "-h" or "--help")
         {
             PrintHelp();
@@ -140,6 +168,8 @@ class Program
         Console.WriteLine("""
         Usage:
           PAIcomPatcher.exe <path-to-PAIcom.exe> [options]
+          PAIcomPatcher.exe --preview [baseDir]      Show command launcher preview UI
+          PAIcomPatcher.exe --launcher [baseDir]     Show command launcher UI
 
         Options:
           --out <file>    Output path  (default: <input>.patched.exe)
@@ -147,11 +177,21 @@ class Program
           --backup        Write <input>.bak before patching
           --verbose       Detailed IL scan output
 
+        UI Modes:
+          --preview, -p   Open the WinForms command launcher in preview mode
+                          (for testing the button layout)
+          --launcher, -l  Open the WinForms command launcher for dispatching commands
+                          (normally called from the injected runtime)
+
         Description:
           Injects a FileSystemWatcher-based hot-swap module into the target
           assembly.  The watcher monitors command_input.txt, looks up the
           command in commands.txt, and invokes the corresponding in-game
           method at runtime – without restarting the process.
+
+          The WinForms command launcher provides a visual button grid UI to
+          trigger commands from within the same process, maintaining backward
+          compatibility with the command_input.txt watcher mechanism.
         """);
     }
 }
