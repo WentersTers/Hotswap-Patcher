@@ -42,6 +42,7 @@ public class AssemblyPatcher
         result.MethodsScanned = allMethods.Count;
         Log($"Scanned {allMethods.Count} methods.");
 
+    #if HOTSWAP_BUILD
         // ── 3. Find command handler and init routine ───────────────────────
         Log("Searching for command handler by IL pattern …");
         var finder = new CommandHandlerFinder(module, _verbose);
@@ -68,10 +69,15 @@ public class AssemblyPatcher
         {
             result.Errors.Add("Could not locate initialization method.");
         }
+#else
+        // Compat build intentionally skips hotswap and command-input patching.
+        Log("Compat build mode: skipping hotswap and command-input patch steps.");
+#endif
 
         // ── 5. Apply patches ───────────────────────────────────────────────
         if (!dryRun && result.Errors.Count == 0)
         {
+#if HOTSWAP_BUILD
             // Inject the HotSwap type now, AFTER scanning is complete
             Log("Injecting HotSwap type …");
             var injector    = new HotSwapInjector(module, _verbose);
@@ -90,6 +96,9 @@ public class AssemblyPatcher
                 injector.InjectWatcherStart(initMethod, hotSwapType);
                 result.PatchPointsApplied++;
             }
+#else
+            Log("Compat build mode: no IL injection performed.");
+#endif
         }
         else if (dryRun)
         {
