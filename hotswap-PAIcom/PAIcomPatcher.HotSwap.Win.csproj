@@ -1,0 +1,119 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>PAIcomPatcher.HotSwap.Win</AssemblyName>
+    <RootNamespace>PAIcomPatcher</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Optimize>true</Optimize>
+    <DefineConstants>$(DefineConstants);HOTSWAP_BUILD</DefineConstants>
+    <!-- Windows-only hotswap build. -->
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Windows Desktop framework includes WinForms, WPF, etc for net8.0-windows -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exclude the old UI folder (game UI) from compilation -->
+    <Compile Remove="UI\**\*.cs" />
+    <!-- Exclude build output folders -->
+    <Compile Remove="obj\**" />
+    <Compile Remove="bin\**" />
+    <!-- IL-level assembly manipulation -->
+    <PackageReference Include="dnlib" Version="4.4.0" />
+    <!-- Roslyn for compiling HotSwap template to IL on the fly -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.9.2" />
+    <!-- .NET Framework 4.8 reference assemblies bundled as a NuGet package.
+         GeneratePathProperty exposes $(PKGMicrosoft_NETFramework_ReferenceAssemblies_net48)
+         so we can embed the ref dlls without needing them installed on the build machine. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48"
+                      Version="1.0.3"
+                      GeneratePathProperty="true"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Embed the required .NET Framework 4.8 reference dlls so the patcher can
+       compile HotSwapTemplate on any OS (no local .NET Framework install needed). -->
+  <ItemGroup>
+    <EmbeddedResource
+      Include="$(PKGMicrosoft_NETFramework_ReferenceAssemblies_net48)\build\.NETFramework\v4.8\mscorlib.dll"
+      LogicalName="netfx48.mscorlib.dll" />
+    <EmbeddedResource
+      Include="$(PKGMicrosoft_NETFramework_ReferenceAssemblies_net48)\build\.NETFramework\v4.8\System.dll"
+      LogicalName="netfx48.System.dll" />
+    <EmbeddedResource
+      Include="$(PKGMicrosoft_NETFramework_ReferenceAssemblies_net48)\build\.NETFramework\v4.8\System.Core.dll"
+      LogicalName="netfx48.System.Core.dll" />
+    <EmbeddedResource
+      Include="$(PKGMicrosoft_NETFramework_ReferenceAssemblies_net48)\build\.NETFramework\v4.8\System.Windows.Forms.dll"
+      LogicalName="netfx48.System.Windows.Forms.dll" />
+    <EmbeddedResource
+      Include="$(PKGMicrosoft_NETFramework_ReferenceAssemblies_net48)\build\.NETFramework\v4.8\System.Drawing.dll"
+      LogicalName="netfx48.System.Drawing.dll" />
+    <EmbeddedResource
+      Include="$(PKGMicrosoft_NETFramework_ReferenceAssemblies_net48)\build\.NETFramework\v4.8\System.Net.Http.dll"
+      LogicalName="netfx48.System.Net.Http.dll" />
+  </ItemGroup>
+
+  <!-- Vosk native libraries (platform-specific speech recognition engine).
+       Placed in Core/NativeLibraries/ — see README for how to populate them. -->
+  <ItemGroup>
+    <EmbeddedResource
+      Include="Core\NativeLibraries\vosk-win-x64.dll"
+      LogicalName="vosk.native.win-x64.dll"
+      Condition="Exists('Core\NativeLibraries\vosk-win-x64.dll')" />
+    <!-- GCC runtime companions required by libvosk.dll on Windows -->
+    <EmbeddedResource
+      Include="Core\NativeLibraries\vosk-win-gcc.dll"
+      LogicalName="vosk.native.win-gcc.dll"
+      Condition="Exists('Core\NativeLibraries\vosk-win-gcc.dll')" />
+    <EmbeddedResource
+      Include="Core\NativeLibraries\vosk-win-stdc.dll"
+      LogicalName="vosk.native.win-stdc.dll"
+      Condition="Exists('Core\NativeLibraries\vosk-win-stdc.dll')" />
+    <EmbeddedResource
+      Include="Core\NativeLibraries\vosk-win-pthread.dll"
+      LogicalName="vosk.native.win-pthread.dll"
+      Condition="Exists('Core\NativeLibraries\vosk-win-pthread.dll')" />
+    <EmbeddedResource
+      Include="Core\NativeLibraries\libvosk-linux-x64.so"
+      LogicalName="vosk.native.linux-x64.so"
+      Condition="Exists('Core\NativeLibraries\libvosk-linux-x64.so')" />
+    <EmbeddedResource
+      Include="Core\NativeLibraries\libvosk-linux-arm64.so"
+      LogicalName="vosk.native.linux-arm64.so"
+      Condition="Exists('Core\NativeLibraries\libvosk-linux-arm64.so')" />
+    <EmbeddedResource
+      Include="Core\NativeLibraries\libvosk-osx-universal.dylib"
+      LogicalName="vosk.native.osx.dylib"
+      Condition="Exists('Core\NativeLibraries\libvosk-osx-universal.dylib')" />
+  </ItemGroup>
+
+  <!-- Vosk managed wrapper + NAudio (for microphone capture).
+       Placed in Core/ManagedLibraries/ — see README for how to populate them. -->
+  <ItemGroup>
+    <EmbeddedResource
+      Include="Core\ManagedLibraries\Vosk.dll"
+      LogicalName="vosk.managed.dll"
+      Condition="Exists('Core\ManagedLibraries\Vosk.dll')" />
+    <EmbeddedResource
+      Include="Core\ManagedLibraries\NAudio.Core.dll"
+      LogicalName="naudio.core.dll"
+      Condition="Exists('Core\ManagedLibraries\NAudio.Core.dll')" />
+    <EmbeddedResource
+      Include="Core\ManagedLibraries\NAudio.WinMM.dll"
+      LogicalName="naudio.winmm.dll"
+      Condition="Exists('Core\ManagedLibraries\NAudio.WinMM.dll')" />
+    <EmbeddedResource
+      Include="Core\ManagedLibraries\Newtonsoft.Json.dll"
+      LogicalName="newtonsoft.json.dll"
+      Condition="Exists('Core\ManagedLibraries\Newtonsoft.Json.dll')" />
+  </ItemGroup>
+
+</Project>

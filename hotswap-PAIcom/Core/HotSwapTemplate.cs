@@ -943,11 +943,11 @@ public static class HotSwapTemplate
                         return;
                     }
 
-                    // Spawn the patcher with base directory (UI will show by default)
+                    // Spawn the patcher with --launcher flag
                     var psi = new System.Diagnostics.ProcessStartInfo
                     {
                         FileName = launcherPath,
-                        Arguments = "\"" + BaseDir + "\"",
+                        Arguments = "--launcher \"" + BaseDir + "\"",
                         UseShellExecute = true,
                         CreateNoWindow = false,
                     };

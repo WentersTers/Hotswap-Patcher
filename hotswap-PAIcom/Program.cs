@@ -45,16 +45,6 @@ class Program
                     launcher.ShowDialog();
                     return 0;
             }
-
-            // If first arg is a directory path (not a flag), show UI form by default
-            if (!args[0].StartsWith("-") && Directory.Exists(args[0]))
-            {
-                Application.EnableVisualStyles();
-                Application.SetCompatibleTextRenderingDefault(false);
-                var uiLauncher = new CommandLauncher(args[0]);
-                uiLauncher.ShowDialog();
-                return 0;
-            }
         }
 
         // ── Parse arguments (normal patcher mode) ────────────────────────

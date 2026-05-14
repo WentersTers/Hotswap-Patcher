@@ -1,7 +1,9 @@
 using PAIcomPatcher.Core;
-using PAIcomPatcher.UILayout;
 using System.Security.Cryptography;
+#if HOTSWAP_BUILD
+using PAIcomPatcher.UILayout;
 using System.Windows.Forms;
+#endif
 
 namespace PAIcomPatcher;
 
@@ -22,6 +24,7 @@ class Program
         Console.WriteLine("==================================");
 
         // ── Check for UI launch modes (early exit) ───────────────────────
+#if HOTSWAP_BUILD
         if (args.Length > 0)
         {
             switch (args[0])
@@ -56,6 +59,7 @@ class Program
                 return 0;
             }
         }
+#endif
 
         // ── Parse arguments (normal patcher mode) ────────────────────────
         if (args.Length == 0 || args[0] is "-h" or "--help")
