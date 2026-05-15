@@ -50,35 +50,54 @@ public class CommandHandlerFinder
     /// </summary>
     public MethodDef? FindCommandHandler()
     {
-        // Strategy A – weighted structural score (ignores string content)
-        var byScore = _allMethods
-            .Where(m => m.Body.Instructions.Count > 50) // skip trivial methods
+        // Strategy A – weighted structural score (ignores string content).
+        // Skip property/event accessors because they are often large setter/getter
+        // methods that look superficially similar to the real dispatcher but do not
+        // own command routing.
+        var scored = _allMethods
+            .Where(m => m.Body.Instructions.Count > 50)
             .Select(m =>
             {
-                var instrs  = m.Body.Instructions;
-                int total   = instrs.Count;
+                var instrs = m.Body.Instructions;
+                int total = instrs.Count;
                 int branches = instrs.Count(i =>
                     i.OpCode.FlowControl is FlowControl.Cond_Branch or FlowControl.Branch);
-                int fields  = instrs.Count(i =>
+                int fields = instrs.Count(i =>
                     i.OpCode == OpCodes.Stfld || i.OpCode == OpCodes.Ldfld);
-                int calls   = instrs.Count(i =>
+                int calls = instrs.Count(i =>
                     i.OpCode is { Code: Code.Call or Code.Callvirt });
+                bool accessorLike = LooksLikeAccessor(m);
                 double score = branches * WeightBranch
-                             + fields   * WeightField
-                             + calls    * WeightCall
-                             + total    * WeightTotal;
-                return (method: m, score, total, branches, fields);
+                             + fields * WeightField
+                             + calls * WeightCall
+                             + total * WeightTotal;
+                return (method: m, score, total, branches, fields, calls, accessorLike);
             })
             .OrderByDescending(x => x.score)
-            .FirstOrDefault();
+            .ToList();
 
+        if (_verbose)
+        {
+            foreach (var candidate in scored.Take(10))
+            {
+                Log($"FindCommandHandler: candidate score={candidate.score:F1} total={candidate.total} branches={candidate.branches} fields={candidate.fields} calls={candidate.calls} accessorLike={candidate.accessorLike} → {candidate.method.FullName}");
+            }
+        }
+
+        var byScore = scored.FirstOrDefault(x => !x.accessorLike && x.branches >= 2 && (x.fields + x.calls) >= 3);
         if (byScore != default)
         {
             Log($"FindCommandHandler: strategy (A) structural score" +
                 $" instrs={byScore.total} branches={byScore.branches}" +
-                $" fields={byScore.fields} score={byScore.score:F0}" +
+                $" fields={byScore.fields} calls={byScore.calls} score={byScore.score:F0}" +
                 $" → {byScore.method.FullName}");
             return byScore.method;
+        }
+
+        if (scored.Count > 0)
+        {
+            var top = scored[0];
+            Log($"FindCommandHandler: top score was not plausible (accessorLike={top.accessorLike}, branches={top.branches}, fields={top.fields}, calls={top.calls}) → {top.method.FullName}");
         }
 
         // Strategy B – largest method by instruction count
@@ -184,5 +203,15 @@ public class CommandHandlerFinder
     {
         if (_verbose)
             Console.WriteLine($"    [scan] {msg}");
+    }
+
+    private static bool LooksLikeAccessor(MethodDef method)
+    {
+        var name = method.Name.ToString();
+        return method.IsSpecialName
+            || name.StartsWith("get_", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("set_", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("add_", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("remove_", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -19,12 +19,14 @@ PAIcom.exe
 PAIcom.exe.bak
 PAIcom.patched.exe
 PAIcom.patched2.exe
+.exe
 
 # Third-party / game-bundled exes and DLLs
 Commands.exe
 mute.exe
 unmute.exe
 Guna.UI.dll
+.pdb
 
 # Runtime files
 command_input.txt

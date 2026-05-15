@@ -2,13 +2,15 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>PAIcomPatcher</AssemblyName>
     <RootNamespace>PAIcomPatcher</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Optimize>true</Optimize>
+    <UseWindowsForms>true</UseWindowsForms>
+    <DefineConstants>$(DefineConstants);HOTSWAP_BUILD</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,6 +18,22 @@
     <PackageReference Include="dnlib" Version="4.4.0" />
     <!-- Optional: Roslyn for compiling HotSwap template to IL on the fly -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.9.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Keep the root build focused on the primary patcher sources. -->
+    <Compile Remove="hotswap-PAIcom\**\*.cs" />
+    <Compile Remove="compat-PAIcom\**\*.cs" />
+    <Compile Remove="hotswap-PAIcom\obj\**" />
+    <Compile Remove="hotswap-PAIcom\bin\**" />
+    <Compile Remove="compat-PAIcom\obj\**" />
+    <Compile Remove="compat-PAIcom\bin\**" />
+    <Compile Remove="UI\**\*.cs" />
+    <Compile Remove="UI\obj\**" />
+    <Compile Remove="UI\bin\**" />
+    <Compile Remove="PAIcomPatcher.Tests\**\*.cs" />
+    <Compile Remove="PAIcomPatcher.Tests\obj\**" />
+    <Compile Remove="PAIcomPatcher.Tests\bin\**" />
   </ItemGroup>
 
 </Project>

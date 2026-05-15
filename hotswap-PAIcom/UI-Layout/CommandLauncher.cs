@@ -5,6 +5,11 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
+using PAIcomPatcher.UI.Commands;
+using PAIcomPatcher.UI.Components;
+using PAIcomPatcher.UI.Configuration;
+using PAIcomPatcher.UI.Layout;
+using PAIcomPatcher.UI.Styling;
 
 namespace PAIcomPatcher.UILayout;
 
@@ -16,280 +21,349 @@ namespace PAIcomPatcher.UILayout;
 public class CommandLauncher : Form
 {
     private readonly string _baseDir;
-    private readonly string _commandsFilePath;
-    private readonly string _inputFilePath;
     private readonly string _animationsDir;
-    private FlowLayoutPanel? _flowPanel;
-    private Dictionary<string, string> _commands; // phrase -> command name mapping
-    private Action<string>? _dispatchDelegate;
-    
-    // Constants for UI spacing  
-    private const int ButtonWidth = 120;
-    private const int ButtonHeight = 50;
-    private const int ButtonPadding = 5;
-    private const int ColumnsPerRow = 5;
+    private readonly string _inputFilePath;
+    private readonly Action<string>? _dispatchDelegate;
+
+    private UIProfileManager _profileManager;
+    private ThemeManager _themeManager;
+    private LayoutManager _layoutManager;
+    private ButtonRegistry _buttonRegistry;
+    private UIProfile _profile;
+    private IReadOnlyList<CommandEntry> _commands;
+
+    private UITabControl _tabControl = null!;
+    private Label _statusLabel = null!;
+    private MenuStrip _menuStrip = null!;
+    private ToolStripMenuItem _refreshMenuItem = null!;
+    private ToolStripMenuItem _resetMenuItem = null!;
+    private ToolStripMenuItem _exitMenuItem = null!;
 
     public CommandLauncher(string? baseDir = null, Action<string>? dispatchDelegate = null)
     {
         _baseDir = baseDir ?? GetDefaultBaseDir();
-        _commandsFilePath = Path.Combine(_baseDir, "custom-commands", "commands.txt");
-        _inputFilePath = Path.Combine(_baseDir, "command_input.txt");
         _animationsDir = Path.Combine(_baseDir, "animations");
+        _inputFilePath = Path.Combine(_baseDir, "command_input.txt");
         _dispatchDelegate = dispatchDelegate;
-        _commands = new Dictionary<string, string>();
+
+        _profileManager = new UIProfileManager(_baseDir);
+        _themeManager = new ThemeManager(_profileManager.GetDefaultProfile());
+        _layoutManager = new LayoutManager(_profileManager, Array.Empty<CommandEntry>());
+        _buttonRegistry = new ButtonRegistry(_profileManager, _layoutManager);
+        _profile = _profileManager.GetDefaultProfile();
+        _commands = Array.Empty<CommandEntry>();
 
         InitializeComponent();
-        LoadCommands();
-        CreateButtonGrid();
+        RefreshCommands();
     }
 
     private string GetDefaultBaseDir()
     {
-        // Try to use the directory of the executing assembly
         var location = System.Reflection.Assembly.GetExecutingAssembly().Location;
         var dir = Path.GetDirectoryName(location) ?? AppDomain.CurrentDomain.BaseDirectory;
 
-        // If we're in bin/Release/net8.0-windows (or similar), walk up to find the project root
-        // Look for custom-commands/commands.txt by walking up the directory tree
         var searchDir = new DirectoryInfo(dir);
-        for (int i = 0; i < 5; i++)  // Search up to 5 levels
+        for (int i = 0; i < 5; i++)
         {
-            if (searchDir == null) break;
-            
+            if (searchDir == null)
+                break;
+
             var commandsPath = Path.Combine(searchDir.FullName, "custom-commands", "commands.txt");
             if (File.Exists(commandsPath))
                 return searchDir.FullName;
-            
+
             searchDir = searchDir.Parent;
         }
 
-        // Fallback: return the assembly directory
         return dir;
     }
 
     private void InitializeComponent()
     {
-        this.Text = "PAIcom Command Launcher";
-        this.Size = new Size(850, 600);
-        this.StartPosition = FormStartPosition.CenterScreen;
-        this.FormBorderStyle = FormBorderStyle.Sizable;
-        this.Font = new Font("Segoe UI", 9F);
-        this.BackColor = Color.FromArgb(45, 45, 48); // Dark theme
-        this.ForeColor = Color.White;
+        SuspendLayout();
 
-        // Create a scroll container
-        _flowPanel = new FlowLayoutPanel
+        Text = "PAIcom Command Launcher";
+        StartPosition = FormStartPosition.CenterScreen;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        Font = new Font("Segoe UI", 9F);
+        ClientSize = new Size(850, 600);
+        MinimumSize = new Size(680, 420);
+
+        _menuStrip = BuildMenuStrip();
+        _tabControl = new UITabControl
         {
             Dock = DockStyle.Fill,
-            AutoScroll = true,
-            AutoSize = false,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
-            Padding = new Padding(ButtonPadding),
-            BackColor = Color.FromArgb(45, 45, 48),
         };
-
-        this.Controls.Add(_flowPanel);
-
-        // Add a status label at the bottom
-        var statusLabel = new Label
+        _statusLabel = new Label
         {
             Dock = DockStyle.Bottom,
-            Text = "Ready. Commands will be dispatched immediately.",
-            Height = 30,
-            BackColor = Color.FromArgb(60, 60, 65),
-            ForeColor = Color.LightGray,
+            Height = 28,
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(10, 0, 0, 0),
         };
-        this.Controls.Add(statusLabel);
+
+        Controls.Add(_tabControl);
+        Controls.Add(_statusLabel);
+        Controls.Add(_menuStrip);
+
+        MainMenuStrip = _menuStrip;
+
+        ResumeLayout(performLayout: true);
     }
 
-    private void LoadCommands()
+    private MenuStrip BuildMenuStrip()
     {
-        _commands.Clear();
+        var menuStrip = new MenuStrip();
 
-        // Try loading from commands.txt first
-        if (File.Exists(_commandsFilePath))
-        {
-            try
-            {
-                foreach (var line in File.ReadAllLines(_commandsFilePath))
-                {
-                    var trimmed = line.Trim();
-                    if (trimmed.Length == 0 || trimmed.StartsWith("#"))
-                        continue;
+        _refreshMenuItem = new ToolStripMenuItem("Refresh", null, (_, _) => RefreshCommands());
+        _resetMenuItem = new ToolStripMenuItem("Reset UI Settings", null, (_, _) => ResetCustomizations());
+        _exitMenuItem = new ToolStripMenuItem("Exit", null, (_, _) => Close());
 
-                    // Parse format: "hey paicom do something (file.txt)"
-                    var parenOpen = trimmed.LastIndexOf('(');
-                    var parenClose = trimmed.LastIndexOf(')');
+        var fileMenu = new ToolStripMenuItem("File");
+        fileMenu.DropDownItems.Add(_refreshMenuItem);
+        fileMenu.DropDownItems.Add(new ToolStripSeparator());
+        fileMenu.DropDownItems.Add(_resetMenuItem);
+        fileMenu.DropDownItems.Add(new ToolStripSeparator());
+        fileMenu.DropDownItems.Add(_exitMenuItem);
 
-                    string phrase;
-                    string commandName;
-
-                    if (parenOpen > 0 && parenClose > parenOpen)
-                    {
-                        phrase = trimmed.Substring(0, parenOpen).Trim();
-                        var fileRef = trimmed.Substring(parenOpen + 1, parenClose - parenOpen - 1).Trim();
-                        
-                        // Strip .txt extension
-                        if (fileRef.ToLowerInvariant().EndsWith(".txt"))
-                            fileRef = fileRef.Substring(0, fileRef.Length - 4);
-                        
-                        commandName = fileRef;
-                    }
-                    else
-                    {
-                        phrase = trimmed;
-                        commandName = trimmed;
-                    }
-
-                    if (!_commands.ContainsKey(phrase))
-                        _commands[phrase] = commandName;
-                }
-                return; // Successfully loaded from commands.txt, don't use fallback
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error loading commands: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-        }
-
-        // Fallback: scan animations/ directory for .txt files
-        LoadCommandsFromAnimationsDirectory();
+        menuStrip.Items.Add(fileMenu);
+        return menuStrip;
     }
 
-    private void LoadCommandsFromAnimationsDirectory()
+    private void LoadLauncherState()
+    {
+        _profileManager = new UIProfileManager(_baseDir);
+        _profile = _profileManager.LoadProfile();
+        _themeManager = new ThemeManager(_profile);
+
+        _profileManager.RefreshCommandsCache();
+        _commands = _profileManager.LoadAllCommands();
+        if (_commands.Count == 0)
+            _commands = LoadFallbackCommands();
+
+        _layoutManager = new LayoutManager(_profileManager, _commands);
+        _buttonRegistry = new ButtonRegistry(_profileManager, _layoutManager);
+
+        if (_profile.Layout.WindowWidth > 0 && _profile.Layout.WindowHeight > 0)
+            ClientSize = new Size(_profile.Layout.WindowWidth, _profile.Layout.WindowHeight);
+
+        Text = string.IsNullOrWhiteSpace(_profile.Metadata?.Name)
+            ? "PAIcom Command Launcher"
+            : $"PAIcom Command Launcher - {_profile.Metadata.Name}";
+    }
+
+    private IReadOnlyList<CommandEntry> LoadFallbackCommands()
     {
         if (!Directory.Exists(_animationsDir))
+            return Array.Empty<CommandEntry>();
+
+        var commands = new List<CommandEntry>();
+        var index = 0;
+        foreach (var filePath in Directory.GetFiles(_animationsDir, "*.txt"))
         {
-            MessageBox.Show($"No commands.txt found and animations directory not found: {_animationsDir}", 
-                "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
+            var fileName = Path.GetFileNameWithoutExtension(filePath);
+            var phrase = $"hey paicom {fileName}";
+            commands.Add(new CommandEntry(phrase, fileName, index));
+            index++;
         }
 
+        return commands;
+    }
+
+    private void ApplyTheme()
+    {
+        _themeManager.ApplyToForm(this);
+        _tabControl.TabBackColor = _themeManager.BackgroundColor;
+        _tabControl.TabSelectedBackColor = _themeManager.AccentColor;
+        _tabControl.TabTextColor = _themeManager.TextColor;
+        _menuStrip.BackColor = _themeManager.BackgroundColor;
+        _menuStrip.ForeColor = _themeManager.TextColor;
+        _statusLabel.BackColor = ColorUtilities.ParseColorOrDefault("#3C3C41", _themeManager.BackgroundColor);
+        _statusLabel.ForeColor = _themeManager.TextColor;
+    }
+
+    private void RenderButtons()
+    {
+        _tabControl.SuspendLayout();
+        _tabControl.TabPages.Clear();
+
+        var tabOrder = _layoutManager.GetTabDisplayOrder();
+        var groupedButtons = _layoutManager.GetButtonsByTab();
+
+        if (tabOrder.Count == 0)
+            tabOrder.Add("General");
+
+        foreach (var tabName in tabOrder)
+        {
+            groupedButtons.TryGetValue(tabName, out var buttonsInTab);
+            var page = BuildTabPage(tabName, buttonsInTab ?? new List<CommandButtonDefinition>());
+            _tabControl.TabPages.Add(page);
+        }
+
+        if (_tabControl.TabPages.Count == 0)
+        {
+            _tabControl.TabPages.Add(BuildTabPage("General", Array.Empty<CommandButtonDefinition>()));
+        }
+
+        _tabControl.ResumeLayout(performLayout: true);
+    }
+
+    private TabPage BuildTabPage(string tabName, IReadOnlyList<CommandButtonDefinition> buttons)
+    {
+        var tabBackground = _profile.Tabs.TryGetValue(tabName, out var tabConfig)
+            ? _themeManager.ResolveTabBackColor(tabConfig.BackgroundColor)
+            : _themeManager.BackgroundColor;
+
+        var page = new TabPage(tabName)
+        {
+            BackColor = tabBackground,
+            ForeColor = _themeManager.TextColor,
+            Padding = new Padding(10),
+        };
+
+        var panel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            WrapContents = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            BackColor = tabBackground,
+            Padding = new Padding(_profile.Layout.ButtonPadding),
+        };
+
+        if (buttons.Count == 0)
+        {
+            panel.Controls.Add(new Label
+            {
+                AutoSize = true,
+                ForeColor = _themeManager.TextColor,
+                Text = "No commands in this tab.",
+                Padding = new Padding(8),
+            });
+        }
+        else
+        {
+            foreach (var buttonDefinition in buttons)
+            {
+                panel.Controls.Add(BuildButton(buttonDefinition));
+            }
+        }
+
+        page.Controls.Add(panel);
+        return page;
+    }
+
+    private Button BuildButton(CommandButtonDefinition definition)
+    {
+        var baseColor = _themeManager.ResolveButtonBackColor(definition.Config);
+        var button = new Button
+        {
+            Text = definition.Config.DisplayName,
+            Width = _profile.Layout.ButtonWidth,
+            Height = _profile.Layout.ButtonHeight,
+            Margin = new Padding(_profile.Layout.ButtonPadding),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = baseColor,
+            ForeColor = _themeManager.TextColor,
+            Cursor = Cursors.Hand,
+            TextAlign = ContentAlignment.MiddleCenter,
+            AutoEllipsis = true,
+            Tag = definition,
+        };
+
+        button.FlatAppearance.BorderSize = _profile.Appearance.ButtonBorderSize;
+        button.FlatAppearance.BorderColor = _themeManager.ButtonBorderColor;
+
+        button.MouseEnter += (_, _) => button.BackColor = _themeManager.ButtonHoverColor;
+        button.MouseLeave += (_, _) => button.BackColor = baseColor;
+        button.Click += (_, _) => OnCommandButtonClicked(definition.Phrase, definition.CommandName);
+        button.ContextMenuStrip = BuildButtonContextMenu(definition);
+
+        return button;
+    }
+
+    private ContextMenuStrip BuildButtonContextMenu(CommandButtonDefinition definition)
+    {
+        var menu = new ContextMenuStrip
+        {
+            BackColor = _themeManager.BackgroundColor,
+            ForeColor = _themeManager.TextColor,
+        };
+
+        var editItem = new ToolStripMenuItem("Edit...");
+        editItem.Click += (_, _) => EditButton(definition);
+
+        var revertItem = new ToolStripMenuItem("Revert to Default")
+        {
+            Enabled = definition.IsCustomized,
+        };
+        revertItem.Click += (_, _) => RevertButton(definition.Phrase);
+
+        menu.Items.Add(editItem);
+        menu.Items.Add(revertItem);
+        return menu;
+    }
+
+    private void EditButton(CommandButtonDefinition definition)
+    {
         try
         {
-            var txtFiles = Directory.GetFiles(_animationsDir, "*.txt");
-            foreach (var filePath in txtFiles)
-            {
-                var fileName = Path.GetFileNameWithoutExtension(filePath);
-                
-                // Create a command phrase from the filename
-                // Example: "youtube.txt" -> "hey paicom youtube" as phrase, "youtube" as command name
-                var phrase = $"hey paicom {fileName}";
-                var commandName = fileName;
-                
-                if (!_commands.ContainsKey(phrase))
-                    _commands[phrase] = commandName;
-            }
+            using var dialog = new CommandLauncherEditDialog(definition.Phrase, definition.CommandName, definition.Config, _themeManager.ButtonBackgroundColor);
+            if (dialog.ShowDialog(this) != DialogResult.OK)
+                return;
 
-            if (_commands.Count > 0)
-            {
-                var label = this.Text;
-                if (!label.Contains("(Animations)"))
-                    this.Text += " (Animations Fallback)";
-            }
+            _buttonRegistry.UpdateButtonMetadata(definition.Phrase, dialog.EditedConfig);
+            UpdateStatus($"Saved customization for {definition.Phrase}");
+            RefreshCommands();
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Error scanning animations directory: {ex.Message}", 
-                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(this, $"Unable to edit the button: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
-    private void CreateButtonGrid()
+    private void RevertButton(string phrase)
     {
-        if (_flowPanel == null) return;
-        
-        _flowPanel.Controls.Clear();
+        _buttonRegistry.RemoveCustomization(phrase);
+        UpdateStatus($"Reverted {phrase} to the default layout.");
+        RefreshCommands();
+    }
 
-        if (_commands.Count == 0)
-        {
-            var label = new Label
-            {
-                Text = "No commands found (commands.txt or animations/*.txt)",
-                AutoSize = true,
-                ForeColor = Color.LightGray,
-            };
-            _flowPanel.Controls.Add(label);
+    private void ResetCustomizations()
+    {
+        var result = MessageBox.Show(
+            this,
+            "Reset custom button overrides only? Theme and layout settings will remain intact.",
+            "Reset UI Settings",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+
+        if (result != DialogResult.Yes)
             return;
-        }
 
-        int index = 0;
-        foreach (var kvp in _commands)
+        try
         {
-            var phrase = kvp.Key;
-            var commandName = kvp.Value;
-
-            var button = new Button
-            {
-                Text = ShortenPhrase(phrase, 15),
-                Width = ButtonWidth,
-                Height = ButtonHeight,
-                Margin = new Padding(ButtonPadding),
-                Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(63, 63, 70),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Tag = new Tuple<string, string>(phrase, commandName),
-            };
-
-            button.FlatAppearance.BorderColor = Color.FromArgb(109, 109, 109);
-            button.FlatAppearance.BorderSize = 1;
-
-            // Add hover effect
-            button.MouseEnter += (s, e) =>
-            {
-                button.BackColor = Color.FromArgb(80, 80, 90);
-            };
-            button.MouseLeave += (s, e) =>
-            {
-                button.BackColor = Color.FromArgb(63, 63, 70);
-            };
-
-            button.Click += (s, e) => OnCommandButtonClicked(phrase, commandName);
-
-            _flowPanel.Controls.Add(button);
-            index++;
+            _profileManager.ResetToDefault();
+            UpdateStatus("Custom button overrides cleared.");
+            RefreshCommands();
         }
-    }
-
-    private string ShortenPhrase(string phrase, int maxLength)
-    {
-        if (phrase.Length <= maxLength)
-            return phrase;
-
-        // Remove "hey paicom " prefix if present
-        var stripped = phrase.StartsWith("hey paicom ", StringComparison.OrdinalIgnoreCase)
-            ? phrase.Substring(11).Trim()
-            : phrase;
-
-        if (stripped.Length <= maxLength)
-            return stripped;
-
-        return stripped.Substring(0, maxLength - 3) + "…";
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Unable to reset the profile: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private void OnCommandButtonClicked(string phrase, string commandName)
     {
         try
         {
-            // Write to command_input.txt for backward compatibility with the watcher
             WriteCommandInputFile(phrase);
-
-            // If a dispatch delegate was registered, invoke it directly
-            if (_dispatchDelegate != null)
-            {
-                _dispatchDelegate(phrase);
-            }
-
-            LogMessage($"Dispatched: {phrase} ({commandName})");
+            _dispatchDelegate?.Invoke(phrase);
+            UpdateStatus($"Dispatched {phrase} ({commandName})");
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Error dispatching command: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(this, $"Error dispatching command: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -297,42 +371,33 @@ public class CommandLauncher : Form
     {
         try
         {
-            // Ensure the file exists
-            if (!File.Exists(_inputFilePath))
-            {
-                File.WriteAllText(_inputFilePath, "");
-            }
-
-            // Write the phrase to trigger the watcher
+            Directory.CreateDirectory(Path.GetDirectoryName(_inputFilePath)!);
             File.WriteAllText(_inputFilePath, phrase.Trim());
         }
         catch (IOException)
         {
-            // Retry once if file is locked
             System.Threading.Thread.Sleep(100);
             File.WriteAllText(_inputFilePath, phrase.Trim());
         }
     }
 
-    private void LogMessage(string message)
+    private void UpdateStatus(string message)
     {
-        // Find the status label and update it
-        foreach (Control ctrl in this.Controls)
-        {
-            if (ctrl is Label label && label.Dock == DockStyle.Bottom)
-            {
-                label.Text = $"{DateTime.Now:HH:mm:ss} - {message}";
-                break;
-            }
-        }
+        _statusLabel.Text = $"{DateTime.Now:HH:mm:ss} - {message}";
     }
 
     /// <summary>
-    /// Reload commands from disk (useful if commands.txt was edited externally).
+    /// Reload the profile and command list from disk.
     /// </summary>
     public void RefreshCommands()
     {
-        LoadCommands();
-        CreateButtonGrid();
+        LoadLauncherState();
+        ApplyTheme();
+        RenderButtons();
+
+        if (_commands.Count == 0)
+            UpdateStatus("No commands were found in commands.txt or animations/*.txt.");
+        else
+            UpdateStatus($"Loaded {_commands.Count} commands.");
     }
 }

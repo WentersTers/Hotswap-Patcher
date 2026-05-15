@@ -52,6 +52,7 @@ public static class HotSwapTemplate
             private static int _started = 0;
             private static Action<string> _dispatchDelegate;
             private static DateTime _lastRead = DateTime.MinValue;
+            private static string _lastToken = string.Empty;
             private static readonly object _lock = new object();
 
             // Reflection-located speech engine (found after game finishes init)
@@ -217,6 +218,12 @@ public static class HotSwapTemplate
 
                         if (token == null || token.Trim() == string.Empty) return;
 
+                        if (string.Equals(token, _lastToken, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Log("[INPUT] Duplicate token ignored: '" + token + "'");
+                            return;
+                        }
+
                         Log($"[INPUT] token='{token}'");
 
                         var gameCmd = LookupCommand(token);
@@ -226,7 +233,19 @@ public static class HotSwapTemplate
                             return;
                         }
 
+                        _lastToken = token;
                         DispatchCommand(token, gameCmd);
+
+                        try
+                        {
+                            File.WriteAllText(InputFile, string.Empty);
+                            _lastRead = File.GetLastWriteTimeUtc(InputFile);
+                            Log("[INPUT] Cleared command_input.txt after dispatch.");
+                        }
+                        catch (Exception clearEx)
+                        {
+                            Log("[WARN] Failed to clear command_input.txt: " + clearEx.Message);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -918,12 +937,12 @@ public static class HotSwapTemplate
                 {
                     Log("[UI] Attempting to launch command launcher UI …");
                     
-                    // Look for the patcher executable in common locations
+                    // Look for launcher.exe in the PAIcom Testing directory or nearby
                     var possiblePaths = new[]
                     {
-                        Path.Combine(BaseDir, "PAIcomPatcher.HotSwap.Win.exe"),
-                        Path.Combine(BaseDir, "..", "PAIcomPatcher.HotSwap.Win.exe"),
-                        "PAIcomPatcher.HotSwap.Win.exe",
+                        Path.Combine(BaseDir, "launcher.exe"),
+                        Path.Combine(BaseDir, "PAIcomPatcher.exe"),
+                        Path.Combine(Path.GetDirectoryName(BaseDir) ?? "", "launcher.exe"),
                     };
 
                     string launcherPath = null;
@@ -939,15 +958,15 @@ public static class HotSwapTemplate
 
                     if (launcherPath == null)
                     {
-                        Log("[UI] Warning: Could not find PAIcomPatcher.HotSwap.Win.exe");
+                        Log("[UI] Warning: Could not find launcher executable");
                         return;
                     }
 
-                    // Spawn the patcher with base directory (UI will show by default)
+                    // Spawn the launcher with the base directory
                     var psi = new System.Diagnostics.ProcessStartInfo
                     {
                         FileName = launcherPath,
-                        Arguments = "\"" + BaseDir + "\"",
+                        Arguments = "--launcher \"" + BaseDir + "\"",
                         UseShellExecute = true,
                         CreateNoWindow = false,
                     };

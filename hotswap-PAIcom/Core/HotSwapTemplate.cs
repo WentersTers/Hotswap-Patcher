@@ -52,6 +52,7 @@ public static class HotSwapTemplate
             private static int _started = 0;
             private static Action<string> _dispatchDelegate;
             private static DateTime _lastRead = DateTime.MinValue;
+            private static string _lastToken = string.Empty;
             private static readonly object _lock = new object();
 
             // Reflection-located speech engine (found after game finishes init)
@@ -217,6 +218,12 @@ public static class HotSwapTemplate
 
                         if (token == null || token.Trim() == string.Empty) return;
 
+                        if (string.Equals(token, _lastToken, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Log("[INPUT] Duplicate token ignored: '" + token + "'");
+                            return;
+                        }
+
                         Log($"[INPUT] token='{token}'");
 
                         var gameCmd = LookupCommand(token);
@@ -226,7 +233,19 @@ public static class HotSwapTemplate
                             return;
                         }
 
+                        _lastToken = token;
                         DispatchCommand(token, gameCmd);
+
+                        try
+                        {
+                            File.WriteAllText(InputFile, string.Empty);
+                            _lastRead = File.GetLastWriteTimeUtc(InputFile);
+                            Log("[INPUT] Cleared command_input.txt after dispatch.");
+                        }
+                        catch (Exception clearEx)
+                        {
+                            Log("[WARN] Failed to clear command_input.txt: " + clearEx.Message);
+                        }
                     }
                     catch (Exception ex)
                     {
