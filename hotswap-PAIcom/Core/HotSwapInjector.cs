@@ -288,11 +288,14 @@ public class HotSwapInjector
         if (File.Exists(mscorlibPath))
             refs.Add(MetadataReference.CreateFromFile(mscorlibPath));
 
-        // And System.dll sibling
-        var systemPath = Path.Combine(
-            Path.GetDirectoryName(mscorlibPath)!, "System.dll");
-        if (File.Exists(systemPath))
-            refs.Add(MetadataReference.CreateFromFile(systemPath));
+        // And System.dll sibling (guard against empty/unknown mscorlib path)
+        var mscorlibDir = Path.GetDirectoryName(mscorlibPath);
+        if (!string.IsNullOrEmpty(mscorlibDir))
+        {
+            var systemPath = Path.Combine(mscorlibDir, "System.dll");
+            if (File.Exists(systemPath))
+                refs.Add(MetadataReference.CreateFromFile(systemPath));
+        }
 
         return [.. refs];
     }
